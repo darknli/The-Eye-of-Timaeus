@@ -4,7 +4,7 @@ from typing import Optional, Union
 import cv2
 import colorsys
 import random
-
+import time
 import numpy as np
 
 
@@ -56,30 +56,45 @@ class Eye:
                  video_height: int = 1080,
                  fps: int = 30,
                  ):
+        self.flip = False
         if isinstance(video_type, int) or isinstance(video_type, str):
+            self.flip = isinstance(video_type, int)
             self.cap = cv2.VideoCapture(video_type)
             self.cap.set(3, video_width)  # 设置分辨率
             self.cap.set(4, video_height)
+            print("原视频帧率是", int(self.cap.get(cv2.CAP_PROP_FPS)))
             self.cap.set(cv2.CAP_PROP_FPS, fps)
+            self.fps = fps
+            print("现视频帧率是", int(self.cap.get(cv2.CAP_PROP_FPS)))
         else:
             self.cap = None
         self.display_name = display_name
+        self.latest_time = time.time()
 
     def run(self, ):
+        interval = 1 / self.fps
+
         while True:
+            cur_time = time.time()
+            # 控制播放帧率
+            if cur_time - self.latest_time < interval:
+                continue
             frame = self.next_frame()
             if frame is None:
                 print("done")
                 break
             self.predict(frame)
             self.show()
+            self.latest_time = cur_time
 
     def next_frame(self):
         if self.cap is None:
             return None
         ret, frame = self.cap.read()
         if ret:
-            return np.ascontiguousarray(frame[:, ::-1])
+            if self.flip:
+                return np.ascontiguousarray(frame[:, ::-1])
+            return frame
         return None
 
     def show(self):

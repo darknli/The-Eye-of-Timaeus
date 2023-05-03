@@ -30,9 +30,9 @@ class DetectEye(Eye):
         self.model = model
         self.color_boxes = ncolors(model.num_classes)
         self.show_image = None
+        print("Detect-Eye初始化完成!")
 
     def predict(self, image):
-        print("检测一帧")
         boxes = self.model(image)
         if self.display_name:
             show_image = image.copy()

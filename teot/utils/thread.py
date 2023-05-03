@@ -12,7 +12,7 @@ class DetectThread(threading.Thread):
         self.eye = eye
         self.mtx_box = mutex_box if mutex_box else threading.Lock()
         self.mtx_img = mutex_img if mutex_img else threading.Lock()
-        self.runing = False
+        self.fast_detect = True
         self.data = data
         self.latest_time = time.time()
         self.interval = interval / 1000
@@ -23,11 +23,14 @@ class DetectThread(threading.Thread):
     def run(self) -> None:
         while True:
             cur_time = time.time()
-            if not self.runing and (cur_time - self.latest_time) > self.interval:
+            self.mtx_box.acquire()
+            self.fast_detect = self.fast_detect or "boxes" not in self.data or len(self.data["boxes"])
+            self.mtx_box.release()
+            if self.fast_detect and (cur_time - self.latest_time) > self.interval:
                 self.mtx_img.acquire()
                 if "image" not in self.data:
                     self.mtx_img.release()
-                    return
+                    continue
                 image = self.data["image"]
                 self.mtx_img.release()
                 boxes = self.eye.predict(image)
@@ -35,6 +38,8 @@ class DetectThread(threading.Thread):
                 self.data["boxes"] = boxes.copy()
                 self.data["boxes_det"] = boxes.copy()
                 self.mtx_box.release()
+                self.fast_detect = False
+                self.latest_time = time.time()
 
 
 class TrackThread(threading.Thread):
@@ -46,7 +51,6 @@ class TrackThread(threading.Thread):
         self.eye = eye
         self.mtx_box = mutex_box if mutex_box else threading.Lock()
         self.mtx_img = mutex_img if mutex_img else threading.Lock()
-        self.runing = False
         self.data = data
         self.latest_time = time.time()
         self.interval = interval / 1000
@@ -54,23 +58,24 @@ class TrackThread(threading.Thread):
     def run(self) -> None:
         while True:
             cur_time = time.time()
-            if not self.runing and (cur_time - self.latest_time) > self.interval:
+            if (cur_time - self.latest_time) > self.interval:
                 self.mtx_img.acquire()
                 if "image" not in self.data:
                     self.mtx_img.release()
-                    return
+                    continue
                 image = self.data["image"]
                 self.mtx_img.release()
-                if not self.eye.has_obj:
-                    return
                 if "boxes_det" in self.data:
                     self.mtx_box.acquire()
                     self.eye.tracking(image, self.data["boxes_det"])
                     del self.data["boxes_det"]
                     self.mtx_box.release()
-                    return
+                    continue
+                if not self.eye.has_obj:
+                    continue
                 boxes = self.eye.predict(self.data["image"])
                 self.mtx_box.acquire()
                 self.data["boxes"] = boxes.copy()
                 self.data["boxes_track"] = boxes.copy()
                 self.mtx_box.release()
+                self.latest_time = time.time()

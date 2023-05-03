@@ -19,26 +19,41 @@ class CVTracker:
         "mosse": cv2.legacy.TrackerMOSSE_create
     }
 
-    def __init__(self, tracker_type: str):
+    def __init__(self, tracker_type: str, scale=0.2):
         if tracker_type in self.cv2_tracker:
             self.tracker_type = self.cv2_tracker[tracker_type]
         else:
             raise NotImplementedError
-        self.trackers = cv2.legacy.MultiTracker_create()
+        self.trackers = []
         self.cls = []
+        self.scale = scale
 
     def track_objs(self, image, boxes):
-        self.trackers = cv2.legacy.MultiTracker_create()
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        image = cv2.resize(image, None, fx=self.scale, fy=self.scale)
+        self.trackers = []
         self.cls = []
         for b in boxes.astype(int).tolist():
             self.cls.append(b[0])
-            self.trackers.add(self.trackers(), image, tuple(b[2:]))
-        self.cls = np.array(self.cls)
+            tracker = self.tracker_type()
+            init_box = (b[2], b[3], b[4] - b[2], b[5] - b[3])
+            assert init_box[2] > 0 and init_box[3] > 0
+            init_box = tuple([b * self.scale for b in init_box])
+            tracker.init(image, init_box)
+            self.trackers.append(tracker)
 
     def __call__(self, image):
-        all_boxes = self.trackers.update(image)
-        conf = np.ones((len(all_boxes), 1))
-        all_boxes = np.concatenate([self.cls[:, None], conf, all_boxes], -1)
+        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        image = cv2.resize(image, None, fx=self.scale, fy=self.scale)
+        all_boxes = []
+        for trk, c in zip(self.trackers, self.cls):
+            status, box = trk.update(image)
+            if len(box) != 4 or box[2] == 0 or box[3] == 0:
+                continue
+            box = [b / self.scale for b in box]
+            new_box = (c, 1, box[0], box[1], box[0] + box[2], box[1] + box[3])
+            all_boxes.append(new_box)
+        all_boxes = np.array(all_boxes)
         return all_boxes
 
 
@@ -73,6 +88,7 @@ class TrackEye(Eye):
             self.model = model
         self.color_boxes = color_boxes
         self.has_obj = False
+        print("Track-Eye初始化完成!")
 
     def tracking(self, image, init_boxes):
         """
@@ -89,7 +105,7 @@ class TrackEye(Eye):
     def predict(self, image):
         show_image = image.copy()
         if not self.has_obj:
-            self.show_image = show_image
+            self.show_image = show_image if self.display_name else None
             return np.zeros((0, 6))
         boxes = self.model(show_image)
         if self.display_name:
